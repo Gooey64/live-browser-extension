@@ -1,0 +1,157 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.activate = activate;
+exports.deactivate = deactivate;
+const vscode = __importStar(require("vscode"));
+class LiveBrowserViewProvider {
+    _extensionUri;
+    static viewType = 'liveBrowser.view';
+    _view;
+    constructor(_extensionUri) {
+        this._extensionUri = _extensionUri;
+    }
+    resolveWebviewView(webviewView) {
+        this._view = webviewView;
+        webviewView.webview.options = {
+            enableScripts: true,
+        };
+        const url = vscode.workspace
+            .getConfiguration('liveBrowser')
+            .get('url', 'https://example.com');
+        webviewView.webview.html = this._getHtml(url);
+    }
+    navigate(url) {
+        if (this._view) {
+            // Save to settings
+            vscode.workspace
+                .getConfiguration('liveBrowser')
+                .update('url', url, vscode.ConfigurationTarget.Global);
+            // Re-render the webview with the new URL
+            this._view.webview.html = this._getHtml(url);
+        }
+    }
+    _getHtml(url) {
+        return `<!DOCTYPE html>
+<html style="height:100%; margin:0; padding:0;">
+<head>
+  <meta http-equiv="Content-Security-Policy" content="default-src *; script-src *; style-src * 'unsafe-inline'; img-src * data:;">
+  <style>
+    body, html { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    iframe { width: 100%; height: 100%; border: none; display: block; }
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--vscode-editor-background);
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    input {
+      flex: 1;
+      padding: 3px 6px;
+      background: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    button {
+      padding: 3px 10px;
+      background: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover { background: var(--vscode-button-hoverBackground); }
+    #frame-container { height: calc(100% - 34px); }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <input id="url-input" type="text" value="${url}" placeholder="https://..." />
+    <button onclick="navigate()">Go</button>
+    <button onclick="reload()">↺</button>
+  </div>
+  <div id="frame-container">
+    <iframe id="frame" src="${url}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+  </div>
+
+  <script>
+    const frame = document.getElementById('frame');
+    const input = document.getElementById('url-input');
+
+    function navigate() {
+      let url = input.value.trim();
+      if (!url.startsWith('http')) url = 'https://' + url;
+      frame.src = url;
+    }
+
+    function reload() {
+      frame.src = frame.src;
+    }
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') navigate();
+    });
+  </script>
+</body>
+</html>`;
+    }
+}
+function activate(context) {
+    const provider = new LiveBrowserViewProvider(context.extensionUri);
+    // Register the bottom panel webview
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(LiveBrowserViewProvider.viewType, provider));
+    // Command to prompt for a URL and navigate
+    context.subscriptions.push(vscode.commands.registerCommand('liveBrowser.open', async () => {
+        const url = await vscode.window.showInputBox({
+            prompt: 'Enter URL',
+            placeHolder: 'https://...',
+            value: vscode.workspace
+                .getConfiguration('liveBrowser')
+                .get('url', ''),
+        });
+        if (url) {
+            provider.navigate(url);
+            // Make the panel visible
+            vscode.commands.executeCommand('liveBrowser.view.focus');
+        }
+    }));
+}
+function deactivate() { }
+//# sourceMappingURL=extension.js.map

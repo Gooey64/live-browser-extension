@@ -53,7 +53,7 @@ class LiveBrowserViewProvider {
             .get('url', 'https://example.com');
         webviewView.webview.html = this._getHtml(url);
     }
-    navigate(url) {
+    goToURL(url) {
         if (this._view) {
             // Save to settings
             vscode.workspace
@@ -67,7 +67,7 @@ class LiveBrowserViewProvider {
         return `<!DOCTYPE html>
 <html style="height:100%; margin:0; padding:0;">
 <head>
-  <meta http-equiv="Content-Security-Policy" content="default-src *; script-src *; style-src * 'unsafe-inline'; img-src * data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src *; script-src * 'unsafe-inline'; style-src * 'unsafe-inline'; img-src * data:;">
   <style>
     body, html { height: 100%; margin: 0; padding: 0; overflow: hidden; }
     iframe { width: 100%; height: 100%; border: none; display: block; }
@@ -104,7 +104,7 @@ class LiveBrowserViewProvider {
 <body>
   <div id="toolbar">
     <input id="url-input" type="text" value="${url}" placeholder="https://..." />
-    <button onclick="navigate()">Go</button>
+    <button onclick="goToURL()">Go</button>
     <button onclick="reload()">↺</button>
   </div>
   <div id="frame-container">
@@ -115,7 +115,7 @@ class LiveBrowserViewProvider {
     const frame = document.getElementById('frame');
     const input = document.getElementById('url-input');
 
-    function navigate() {
+    function goToURL() {
       let url = input.value.trim();
       if (!url.startsWith('http')) url = 'https://' + url;
       frame.src = url;
@@ -126,7 +126,7 @@ class LiveBrowserViewProvider {
     }
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') navigate();
+      if (e.key === 'Enter') goToURL();
     });
   </script>
 </body>
@@ -137,7 +137,7 @@ function activate(context) {
     const provider = new LiveBrowserViewProvider(context.extensionUri);
     // Register the bottom panel webview
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(LiveBrowserViewProvider.viewType, provider));
-    // Command to prompt for a URL and navigate
+    // Command to prompt for a URL and goToURL
     context.subscriptions.push(vscode.commands.registerCommand('liveBrowser.open', async () => {
         const url = await vscode.window.showInputBox({
             prompt: 'Enter URL',
@@ -147,7 +147,7 @@ function activate(context) {
                 .get('url', ''),
         });
         if (url) {
-            provider.navigate(url);
+            provider.goToURL(url);
             // Make the panel visible
             vscode.commands.executeCommand('liveBrowser.view.focus');
         }

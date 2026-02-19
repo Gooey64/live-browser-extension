@@ -13,10 +13,14 @@
   "main": "./out/extension.js",
   "contributes": {
   "commands": [
-    {
-      "command": "liveBrowser.open",
-      "title": "Live Browser: Open URL in Panel"
-    }
+  {
+    "command": "liveBrowser.open",
+    "title": "Live Browser: Open URL in Panel"
+  },
+  {
+    "command": "liveBrowser.openFile",
+    "title": "Live Browser: Open HTML File in Panel"
+  }
   ],
   "viewsContainers": {
     "panel": [

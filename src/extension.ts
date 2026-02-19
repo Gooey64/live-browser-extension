@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 
 class LiveBrowserViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'liveBrowser.view';
   private _view?: vscode.WebviewView;
+  private _currentFilePath?: string;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -11,28 +13,50 @@ class LiveBrowserViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.options = {
       enableScripts: true,
+      localResourceRoots: [vscode.Uri.file('/')]
     };
 
     const url = vscode.workspace
       .getConfiguration('liveBrowser')
       .get<string>('url', 'https://example.com');
 
-    webviewView.webview.html = this._getHtml(url);
+    webviewView.webview.html = this._getIframeHtml(url);
   }
 
-  public goToURL(url: string) {
+  // Load a URL via iframe
+  public goToUrl(url: string) {
     if (this._view) {
-      // Save to settings
+      this._currentFilePath = undefined; // clear any watched file
       vscode.workspace
         .getConfiguration('liveBrowser')
         .update('url', url, vscode.ConfigurationTarget.Global);
 
-      // Re-render the webview with the new URL
-      this._view.webview.html = this._getHtml(url);
+      this._view.webview.html = this._getIframeHtml(url);
     }
   }
 
-  private _getHtml(url: string): string {
+  // Load a local HTML file directly into the webview
+  public loadFile(filePath: string) {
+    if (this._view) {
+      this._currentFilePath = filePath;
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      this._view.webview.html = fileContent;
+    }
+  }
+
+  // Reload the current file if one is loaded
+  public reloadIfWatching(savedFilePath: string) {
+    if (this._currentFilePath && this._currentFilePath === savedFilePath) {
+      this.loadFile(this._currentFilePath);
+    }
+  }
+
+  // Get the currently watched file path
+  public get currentFilePath(): string | undefined {
+    return this._currentFilePath;
+  }
+
+  private _getIframeHtml(url: string): string {
     return `<!DOCTYPE html>
 <html style="height:100%; margin:0; padding:0;">
 <head>
@@ -73,7 +97,7 @@ class LiveBrowserViewProvider implements vscode.WebviewViewProvider {
 <body>
   <div id="toolbar">
     <input id="url-input" type="text" value="${url}" placeholder="https://..." />
-    <button onclick="goToURL()">Go</button>
+    <button onclick="goToUrl()">Go</button>
     <button onclick="reload()">↺</button>
   </div>
   <div id="frame-container">
@@ -84,7 +108,7 @@ class LiveBrowserViewProvider implements vscode.WebviewViewProvider {
     const frame = document.getElementById('frame');
     const input = document.getElementById('url-input');
 
-    function goToURL() {
+    function goToUrl() {
       let url = input.value.trim();
       if (!url.startsWith('http')) url = 'https://' + url;
       frame.src = url;
@@ -95,7 +119,7 @@ class LiveBrowserViewProvider implements vscode.WebviewViewProvider {
     }
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') goToURL();
+      if (e.key === 'Enter') goToUrl();
     });
   </script>
 </body>
@@ -114,7 +138,7 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Command to prompt for a URL and goToURL
+  // Command: Open a URL
   context.subscriptions.push(
     vscode.commands.registerCommand('liveBrowser.open', async () => {
       const url = await vscode.window.showInputBox({
@@ -126,10 +150,33 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       if (url) {
-        provider.goToURL(url);
-        // Make the panel visible
+        provider.goToUrl(url);
         vscode.commands.executeCommand('liveBrowser.view.focus');
       }
+    })
+  );
+
+  // Command: Open a local HTML file
+  context.subscriptions.push(
+    vscode.commands.registerCommand('liveBrowser.openFile', async () => {
+      const fileUri = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: { 'HTML Files': ['html'] }
+      });
+
+      if (fileUri && fileUri[0]) {
+        provider.loadFile(fileUri[0].fsPath);
+        vscode.commands.executeCommand('liveBrowser.view.focus');
+      }
+    })
+  );
+
+  // Auto-reload on save
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(document => {
+      provider.reloadIfWatching(document.fileName);
     })
   );
 }

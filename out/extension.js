@@ -36,10 +36,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
+const fs = __importStar(require("fs"));
 class LiveBrowserViewProvider {
     _extensionUri;
     static viewType = 'liveBrowser.view';
     _view;
+    _currentFilePath;
     constructor(_extensionUri) {
         this._extensionUri = _extensionUri;
     }
@@ -47,23 +49,42 @@ class LiveBrowserViewProvider {
         this._view = webviewView;
         webviewView.webview.options = {
             enableScripts: true,
+            localResourceRoots: [vscode.Uri.file('/')]
         };
         const url = vscode.workspace
             .getConfiguration('liveBrowser')
             .get('url', 'https://example.com');
-        webviewView.webview.html = this._getHtml(url);
+        webviewView.webview.html = this._getIframeHtml(url);
     }
-    goToURL(url) {
+    // Load a URL via iframe
+    goToUrl(url) {
         if (this._view) {
-            // Save to settings
+            this._currentFilePath = undefined; // clear any watched file
             vscode.workspace
                 .getConfiguration('liveBrowser')
                 .update('url', url, vscode.ConfigurationTarget.Global);
-            // Re-render the webview with the new URL
-            this._view.webview.html = this._getHtml(url);
+            this._view.webview.html = this._getIframeHtml(url);
         }
     }
-    _getHtml(url) {
+    // Load a local HTML file directly into the webview
+    loadFile(filePath) {
+        if (this._view) {
+            this._currentFilePath = filePath;
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            this._view.webview.html = fileContent;
+        }
+    }
+    // Reload the current file if one is loaded
+    reloadIfWatching(savedFilePath) {
+        if (this._currentFilePath && this._currentFilePath === savedFilePath) {
+            this.loadFile(this._currentFilePath);
+        }
+    }
+    // Get the currently watched file path
+    get currentFilePath() {
+        return this._currentFilePath;
+    }
+    _getIframeHtml(url) {
         return `<!DOCTYPE html>
 <html style="height:100%; margin:0; padding:0;">
 <head>
@@ -104,7 +125,7 @@ class LiveBrowserViewProvider {
 <body>
   <div id="toolbar">
     <input id="url-input" type="text" value="${url}" placeholder="https://..." />
-    <button onclick="goToURL()">Go</button>
+    <button onclick="goToUrl()">Go</button>
     <button onclick="reload()">↺</button>
   </div>
   <div id="frame-container">
@@ -115,7 +136,7 @@ class LiveBrowserViewProvider {
     const frame = document.getElementById('frame');
     const input = document.getElementById('url-input');
 
-    function goToURL() {
+    function goToUrl() {
       let url = input.value.trim();
       if (!url.startsWith('http')) url = 'https://' + url;
       frame.src = url;
@@ -126,7 +147,7 @@ class LiveBrowserViewProvider {
     }
 
     input.addEventListener('keydown', e => {
-      if (e.key === 'Enter') goToURL();
+      if (e.key === 'Enter') goToUrl();
     });
   </script>
 </body>
@@ -137,7 +158,7 @@ function activate(context) {
     const provider = new LiveBrowserViewProvider(context.extensionUri);
     // Register the bottom panel webview
     context.subscriptions.push(vscode.window.registerWebviewViewProvider(LiveBrowserViewProvider.viewType, provider));
-    // Command to prompt for a URL and goToURL
+    // Command: Open a URL
     context.subscriptions.push(vscode.commands.registerCommand('liveBrowser.open', async () => {
         const url = await vscode.window.showInputBox({
             prompt: 'Enter URL',
@@ -147,10 +168,26 @@ function activate(context) {
                 .get('url', ''),
         });
         if (url) {
-            provider.goToURL(url);
-            // Make the panel visible
+            provider.goToUrl(url);
             vscode.commands.executeCommand('liveBrowser.view.focus');
         }
+    }));
+    // Command: Open a local HTML file
+    context.subscriptions.push(vscode.commands.registerCommand('liveBrowser.openFile', async () => {
+        const fileUri = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            filters: { 'HTML Files': ['html'] }
+        });
+        if (fileUri && fileUri[0]) {
+            provider.loadFile(fileUri[0].fsPath);
+            vscode.commands.executeCommand('liveBrowser.view.focus');
+        }
+    }));
+    // Auto-reload on save
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
+        provider.reloadIfWatching(document.fileName);
     }));
 }
 function deactivate() { }
